@@ -227,6 +227,7 @@ def ElbowCluesters(self,temp : np.ndarray):
     visualizer.fit(temp)
     #visualizer.show()
     return visualizer.elbow_value_
+    
 def ElbowCluestersV2(self,temp : np.ndarray, ncluesters : int):
     for i in range(ncluesters):
         kmeanModel = KMeans(n_clusters=i+1).fit(temp)
