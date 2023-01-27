@@ -7,6 +7,10 @@ import time
 import serial 
 import signal
 import sys
+from sklearn.cluster import KMeans
+from yellowbrick.cluster import KElbowVisualizer, SilhouetteVisualizer
+from sklearn.cluster import KMeans
+
 
 #  on click on widget get x,y coordinates
 def SignalHandler(sig, frame):
@@ -17,22 +21,27 @@ def SignalHandler(sig, frame):
     sys.exit(0)
 
 
+
+    
+
 class MainWindow(QtWidgets.QMainWindow):
+   
     def __init__(self, *args, **kwargs):
         super(MainWindow, self).__init__(*args, **kwargs)
         self.graphWidget = pg.PlotWidget()
         
+        self.trackingWidget = pg.PlotWidget()
 
         self.gain = QtWidgets.QSlider(QtCore.Qt.Orientation.Horizontal)
         self.gain.setMinimum(0)
-        self.gain.setMaximum(30)
-        self.gain.setValue(0)
+        self.gain.setMaximum(100)
+        self.gain.setValue(30)
 
         self.gain.setTickInterval(1)
      
         self.treshold = QtWidgets.QSlider(QtCore.Qt.Orientation.Horizontal)
         self.treshold.setMinimum(0)
-        self.treshold.setMaximum(20)
+        self.treshold.setMaximum(500)
         self.treshold.setValue(0)
         self.treshold.setTickInterval(1)
         self.treshold.valueChanged.connect(self.tresholdChanged)
@@ -43,6 +52,13 @@ class MainWindow(QtWidgets.QMainWindow):
         self.treshold_label = QtWidgets.QLabel()
         self.treshold_label.setText("Treshold: " + str(self.treshold.value()))
 
+        self.trackingWidget.setBackground('w')
+
+
+
+
+
+        
         self.graphWidget.setBackground('w')
         self.graphWidget.scene().sigMouseClicked.connect(self.mouseClicked)
         layout = QtWidgets.QVBoxLayout()
@@ -51,6 +67,7 @@ class MainWindow(QtWidgets.QMainWindow):
         layout.addWidget(self.gain_label)
         layout.addWidget(self.treshold)
         layout.addWidget(self.treshold_label)
+        layout.addWidget(self.trackingWidget)
 
         self.gain.valueChanged.connect(self.gainChanged)
         self.setLayout(layout)
@@ -58,18 +75,7 @@ class MainWindow(QtWidgets.QMainWindow):
         central_widget = QtWidgets.QWidget()
         central_widget.setLayout(layout)
         self.setCentralWidget(central_widget)
-        
-        # Set the window title
-        self.setWindowTitle("Arctic Glove")
-
-        #Add a widget to modify the value of a variable
-        # self.slider = QtWidgets.QSlider(QtCore.Qt.Horizontal)
-        # self.slider.setMinimum(0)
-        # self.slider.setMaximum(100)
-        # self.slider.setValue(50)
-        # self.slider.setTickPosition(QtWidgets.QSlider.TicksBelow)
-        # self.slider.setTickInterval(10)
-        # self.slider.valueChanged.connect(self.sliderChanged)
+    
         # self.slider.setFixedWidth(200)
         # self.slider.setFixedHeight(50
         # self.data_line =  self.graphWidget.plot(self.delegate.times, self.delegate.vals, pen=pen)
@@ -86,9 +92,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self.sync = False
         self.calibration = []
         #TO DEFINE
-        self.cols = 9
-        self.rows = 9
+        self.cols = 11
+        self.rows = 11
 
+        #To determine the number of cluesters
+        self.model = KMeans(n_clusters=5)
         self.cells = self.cols*self.rows
         self.buffer = np.zeros(self.cells)
         self.mean = 10000
@@ -184,16 +192,56 @@ class MainWindow(QtWidgets.QMainWindow):
   
         # temp = np.clip(temp, 0, 1000)
         temp = temp - self.mean
-        print(temp)
-        temp[temp<self.treshold.value()] = 0
-
+        #print(temp)
+        temp[temp<0] = 0
+        tracking = GravityCenter(self, temp)
+        #print("Nb of cluesters : ",SilhouetteCluesters(self, temp))
         #disable auto levels
 
-        image = pg.ImageItem(temp, autoLevels=False, autoRange=False, autoHistogramRange=False, levels=(0, 30))
+        image = pg.ImageItem(temp, autoLevels=False, autoRange=False, autoHistogramRange=False, levels=(0, self.treshold.value()))
+        ImageTrack = pg.ImageItem(tracking, autoLevels=False, autoRange=False, autoHistogramRange=False, levels=(0, 1)) 
+        self.trackingWidget.plotItem.clear()
+        self.trackingWidget.plotItem.addItem(ImageTrack)
         self.graphWidget.plotItem.clear()
         self.graphWidget.plotItem.addItem(image)
         # self.graphWidget.setImage(self.buffer, autoLevels=False, autoRange=False, autoHistogramRange=False, levels=(0, 1000))
         
+
+def GravityCenter(self, temp : np.ndarray):
+    posx,posy = 0,0
+    center = np.zeros((self.rows, self.cols))
+
+    for x in range(self.cols):
+        for y in range(self.rows):
+            #print("somme : ",temp.sum(), " type : ", type(temp.sum()))
+            posx += (1/temp.sum())*temp[x,y]*x
+           
+            posy += (1/temp.sum())*temp[x,y]*y
+    center[int(posx),int(posy)] = 1
+    return center
+
+def ElbowCluesters(self,temp : np.ndarray):
+    #determine the number of cluesters in temp matrix with the elbow method 
+    #return the number of cluesters
+    visualizer = KElbowVisualizer(self.model, k=(1,6))
+    visualizer.fit(temp)
+    #visualizer.show()
+    return visualizer.elbow_value_
+def ElbowCluestersV2(self,temp : np.ndarray, ncluesters : int):
+    for i in range(ncluesters):
+        kmeanModel = KMeans(n_clusters=i+1).fit(temp)
+        kmeanModel.fit(temp)
+
+
+#method to determine number of cluesters with the silhouette method
+def SilhouetteCluesters(self,temp : np.ndarray):
+    #determine the number of cluesters in temp matrix with the silhouette method 
+    #return the number of cluesters
+    visualizer = SilhouetteVisualizer(self.model, colors='yellowbrick')
+    visualizer.fit(temp)
+    return visualizer.elbow_value_
+      
+
 
 
 #attach the signal
