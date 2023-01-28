@@ -55,7 +55,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.trackingWidget.setBackground('w')
 
 
-
+        self.iteration = 0
 
 
         
@@ -84,11 +84,14 @@ class MainWindow(QtWidgets.QMainWindow):
         # self.timer2.setInterval(10)
         # self.timer2.timeout.connect(self.readByte)
         # self.timer2.start()
+        
         self.timer = QtCore.QTimer()
         self.timer.setInterval(10)
+
+        self.start = time.time()
         self.timer.timeout.connect(self.update_plot_data)
         self.timer.start()
-        self.ser = serial.Serial('/dev/ttyUSB0', 250000, timeout=0.1)
+        self.ser = serial.Serial('/dev/cu.usbserial-0001', 250000, timeout=0.1)
         self.sync = False
         self.calibration = []
         #TO DEFINE
@@ -96,7 +99,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.rows = 11
 
         #To determine the number of cluesters
-        self.model = KMeans(n_clusters=5)
+        #self.model = KMeans(n_clusters=5, n_init="auto")
+        
         self.cells = self.cols*self.rows
         self.buffer = np.zeros(self.cells)
         self.mean = 10000
@@ -183,7 +187,7 @@ class MainWindow(QtWidgets.QMainWindow):
         #  plot the data*
         # print(self.buffer.shape)
         temp = self.buffer
-        if len(self.calibration)<80:
+        if len(self.calibration)<80 and (time.time()-self.start>5):
             self.calibration.append(self.buffer)
             self.mean = np.mean(np.array(self.calibration), axis=0)
             self.std = np.std(np.array(self.calibration), axis=0)
@@ -194,8 +198,13 @@ class MainWindow(QtWidgets.QMainWindow):
         temp = temp - self.mean
         #print(temp)
         temp[temp<0] = 0
-        tracking = GravityCenter(self, temp)
-        #print("Nb of cluesters : ",SilhouetteCluesters(self, temp))
+        tracking, posx, posy = GravityCenter(self, temp)
+        if time.time()-self.start > 30 : 
+            print("GOOOOOOOOOOO")
+            writePosition(self, str(temp))
+    
+
+        #print("Distortion : ", ElbowCluesters(self, temp))
         #disable auto levels
 
         image = pg.ImageItem(temp, autoLevels=False, autoRange=False, autoHistogramRange=False, levels=(0, self.treshold.value()))
@@ -206,6 +215,17 @@ class MainWindow(QtWidgets.QMainWindow):
         self.graphWidget.plotItem.addItem(image)
         # self.graphWidget.setImage(self.buffer, autoLevels=False, autoRange=False, autoHistogramRange=False, levels=(0, 1000))
         
+#Method to write in a file the position of the center of gravity and when 40 iterations are made go at the line 
+
+def writePosition(self, temp):
+    self.iteration += 1
+    print(self.iteration)
+    file = open("position[NOMOVE].txt", "a")
+    file.write(temp)
+    if self.iteration%40 == 0:
+        file.write("\n")
+        self.iteration = 0
+    file.close()
 
 def GravityCenter(self, temp : np.ndarray):
     posx,posy = 0,0
@@ -218,20 +238,25 @@ def GravityCenter(self, temp : np.ndarray):
            
             posy += (1/temp.sum())*temp[x,y]*y
     center[int(posx),int(posy)] = 1
-    return center
+    return center, posx, posy
 
-def ElbowCluesters(self,temp : np.ndarray):
-    #determine the number of cluesters in temp matrix with the elbow method 
-    #return the number of cluesters
-    visualizer = KElbowVisualizer(self.model, k=(1,6))
-    visualizer.fit(temp)
-    #visualizer.show()
-    return visualizer.elbow_value_
+# def ElbowCluesters(self,temp : np.ndarray):
+#     #determine the number of cluesters in temp matrix with the elbow method 
+#     #return the number of cluesters
+#     visualizer = KElbowVisualizer(self.model, k=5)
+#     visualizer.fit(temp)
+#     #visualizer.show()
+#     return visualizer.elbow_value_
     
-def ElbowCluestersV2(self,temp : np.ndarray, ncluesters : int):
-    for i in range(ncluesters):
-        kmeanModel = KMeans(n_clusters=i+1).fit(temp)
-        kmeanModel.fit(temp)
+# def ElbowCluestersV2(self,temp : np.ndarray, ncluesters : int):
+#     distortion = []
+#     for i in range(ncluesters):
+#         kmeanModel = KMeans(n_clusters = i+1, n_init = "auto")
+#         kmeanModel.fit(temp)
+#         distortion.append(kmeanModel.inertia_)
+        
+    
+#     return distortion#.index(max(distortion))
 
 
 #method to determine number of cluesters with the silhouette method
