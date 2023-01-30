@@ -39,6 +39,14 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.gain.setTickInterval(1)
      
+        self.range = QtWidgets.QSlider(QtCore.Qt.Orientation.Horizontal)
+        self.range.setMinimum(0)
+        self.range.setMaximum(500)
+        self.range.setValue(0)
+        self.range.setTickInterval(1)
+        self.range.valueChanged.connect(self.rangeChanged)
+
+
         self.treshold = QtWidgets.QSlider(QtCore.Qt.Orientation.Horizontal)
         self.treshold.setMinimum(0)
         self.treshold.setMaximum(500)
@@ -46,11 +54,15 @@ class MainWindow(QtWidgets.QMainWindow):
         self.treshold.setTickInterval(1)
         self.treshold.valueChanged.connect(self.tresholdChanged)
 
+
         self.gain_label = QtWidgets.QLabel()
         self.gain_label.setText("Gain: " + str(self.gain.value()))
         
         self.treshold_label = QtWidgets.QLabel()
         self.treshold_label.setText("Treshold: " + str(self.treshold.value()))
+
+        self.range_label = QtWidgets.QLabel()
+        self.range_label.setText("Range: " + str(self.treshold.value()))
 
         self.trackingWidget.setBackground('w')
 
@@ -67,7 +79,10 @@ class MainWindow(QtWidgets.QMainWindow):
         layout.addWidget(self.gain_label)
         layout.addWidget(self.treshold)
         layout.addWidget(self.treshold_label)
+        layout.addWidget(self.range)
+        layout.addWidget(self.range_label)
         layout.addWidget(self.trackingWidget)
+        
 
         self.gain.valueChanged.connect(self.gainChanged)
         self.setLayout(layout)
@@ -88,7 +103,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.timer.setInterval(10)
         self.timer.timeout.connect(self.update_plot_data)
         self.timer.start()
-        self.ser = serial.Serial('/dev/ttyUSB0', 250000, timeout=0.1)
+        self.ser = serial.Serial('/dev/ttyUSB1', 250000, timeout=0.1)
         self.sync = False
         self.calibration = []
         #TO DEFINE
@@ -101,11 +116,18 @@ class MainWindow(QtWidgets.QMainWindow):
         self.buffer = np.zeros(self.cells)
         self.mean = 10000
         self.std = 10000
+
+        self.startTime = time.time()
     
+    def rangeChanged(self):
+        range = self.range.value()
+        self.range_label.setText("Range: " + str(range))
+     
+
     def tresholdChanged(self):
         treshold = self.treshold.value()
         self.treshold_label.setText("Treshold: " + str(treshold))
-        print(treshold)
+      
 
     def gainChanged(self):
         gain = self.gain.value()
@@ -193,12 +215,13 @@ class MainWindow(QtWidgets.QMainWindow):
         # temp = np.clip(temp, 0, 1000)
         temp = temp - self.mean
         #print(temp)
-        temp[temp<0] = 0
+        temp[temp<self.treshold.value()] = 0
         tracking = GravityCenter(self, temp)
-        #print("Nb of cluesters : ",SilhouetteCluesters(self, temp))
+        print(temp, type(temp))
+        
         #disable auto levels
 
-        image = pg.ImageItem(temp, autoLevels=False, autoRange=False, autoHistogramRange=False, levels=(0, self.treshold.value()))
+        image = pg.ImageItem(temp, autoLevels=False, autoRange=False, autoHistogramRange=False, levels=(0, self.range.value()))
         ImageTrack = pg.ImageItem(tracking, autoLevels=False, autoRange=False, autoHistogramRange=False, levels=(0, 1)) 
         self.trackingWidget.plotItem.clear()
         self.trackingWidget.plotItem.addItem(ImageTrack)
@@ -210,23 +233,46 @@ class MainWindow(QtWidgets.QMainWindow):
 def GravityCenter(self, temp : np.ndarray):
     posx,posy = 0,0
     center = np.zeros((self.rows, self.cols))
-
-    for x in range(self.cols):
-        for y in range(self.rows):
-            #print("somme : ",temp.sum(), " type : ", type(temp.sum()))
-            posx += (1/temp.sum())*temp[x,y]*x
-           
-            posy += (1/temp.sum())*temp[x,y]*y
-    center[int(posx),int(posy)] = 1
+    moyenne = np.mean(temp)  
+    print("moyenne value : ", moyenne)
+    if moyenne > 1 :
+        for x in range(self.cols):
+            for y in range(self.rows):
+                #print("somme : ",temp.sum(), " type : ", type(temp.sum()))
+                posx += (1/temp.sum())*temp[x,y]*x
+            
+                posy += (1/temp.sum())*temp[x,y]*y
+        
+        center[int(posx),int(posy)] = 1
     return center
 
 def ElbowCluesters(self,temp : np.ndarray):
     #determine the number of cluesters in temp matrix with the elbow method 
     #return the number of cluesters
-    visualizer = KElbowVisualizer(self.model, k=(1,6))
-    visualizer.fit(temp)
+    elbowtracking = np.zeros((self.rows, self.cols))
+    #get the index of each element not null of temp
+    temp = temp.reshape(1,-1)
+    temp = temp[0]
+    points = np.array([[x%self.cols,x//self.rows] for x in range(len(temp)) if temp[x]!=0])
+    print(points)
+
+    visualizer = KElbowVisualizer(self.model, k=5)
+    visualizer.fit(points)
     #visualizer.show()
-    return visualizer.elbow_value_
+    nbclusters = visualizer.elbow_value_
+    print("Nb of cluesters : ",nbclusters)
+    if nbclusters != None : 
+        kmeans_model = KMeans(n_clusters=int(nbclusters)).fit(points)
+        kmeans_model.fit(points)
+        #find position of the center of the cluster 
+        for i in kmeans_model.cluster_centers_:
+            elbowtracking[int(i[0]),int(i[1])] = 1
+
+    
+    # kmeans_model.fit(points)
+
+
+    return elbowtracking, nbclusters
     
 def ElbowCluestersV2(self,temp : np.ndarray, ncluesters : int):
     for i in range(ncluesters):
@@ -236,8 +282,18 @@ def ElbowCluestersV2(self,temp : np.ndarray, ncluesters : int):
 
 #method to determine number of cluesters with the silhouette method
 def SilhouetteCluesters(self,temp : np.ndarray):
-    #determine the number of cluesters in temp matrix with the silhouette method 
-    #return the number of cluesters
+    #get the index of each element not null of temp
+    #temp = temp.reshape(1,-1)
+    #temp = temp[0]
+    #temp = temp.tolist()
+    #temp = np.array(temp)
+    #temp = temp.reshape(self.rows, self.cols)
+    #print(temp)
+
+
+  
+
+    y = [[i,v] for i,v in range(len(temp)) if temp[i] != 0]
     visualizer = SilhouetteVisualizer(self.model, colors='yellowbrick')
     visualizer.fit(temp)
     return visualizer.elbow_value_
