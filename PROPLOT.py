@@ -32,6 +32,14 @@ class MainWindow(QtWidgets.QMainWindow):
         
         self.trackingWidget = pg.PlotWidget()
 
+
+        #add a buton to start recording
+        # self.recordButton = QtWidgets.QPushButton("Record")
+        # self.recordButton.clicked.connect(self.recordButtonClicked)
+        # self.recordButton.setCheckable(True)
+
+
+
         self.gain = QtWidgets.QSlider(QtCore.Qt.Orientation.Horizontal)
         self.gain.setMinimum(0)
         self.gain.setMaximum(100)
@@ -42,7 +50,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.treshold = QtWidgets.QSlider(QtCore.Qt.Orientation.Horizontal)
         self.treshold.setMinimum(0)
         self.treshold.setMaximum(500)
-        self.treshold.setValue(0)
+        self.treshold.setValue(10)
         self.treshold.setTickInterval(1)
         self.treshold.valueChanged.connect(self.tresholdChanged)
 
@@ -68,6 +76,7 @@ class MainWindow(QtWidgets.QMainWindow):
         layout.addWidget(self.treshold)
         layout.addWidget(self.treshold_label)
         layout.addWidget(self.trackingWidget)
+
 
         self.gain.valueChanged.connect(self.gainChanged)
         self.setLayout(layout)
