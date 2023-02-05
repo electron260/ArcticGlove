@@ -30,6 +30,34 @@ class MainWindow(QtWidgets.QMainWindow):
         super(MainWindow, self).__init__(*args, **kwargs)
         self.graphWidget = pg.PlotWidget()
         
+        #add a widget to let you choose between "slide left", "slide right", "no move", "slide up", "slide down", "long touch"
+        self.file = None
+        self.patience = -1
+
+
+        self.recordmenu = QtWidgets.QPushButton("Action",self)
+        self.menu = QtWidgets.QMenu(self)
+        self.menu.addAction("Slide Left")
+        self.menu.addAction("Slide Right")
+        self.menu.addAction("Slide Up")
+        self.menu.addAction("Slide Down")
+        self.menu.addAction("Long Touch")
+        self.recordmenu.setMenu(self.menu)
+
+        #change the value of menu_label when you click on an action
+        self.menu.triggered.connect(self.Action)
+
+        self.menu_label = QtWidgets.QLabel("Action : No mode selected")
+        #self.menu_label.setText("Action : ", str(self.action))
+
+     
+        
+
+
+
+      
+
+
         self.trackingWidget = pg.PlotWidget()
 
         self.gain = QtWidgets.QSlider(QtCore.Qt.Orientation.Horizontal)
@@ -42,7 +70,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.range = QtWidgets.QSlider(QtCore.Qt.Orientation.Horizontal)
         self.range.setMinimum(0)
         self.range.setMaximum(500)
-        self.range.setValue(0)
+        self.range.setValue(30)
         self.range.setTickInterval(1)
         self.range.valueChanged.connect(self.rangeChanged)
 
@@ -50,7 +78,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.treshold = QtWidgets.QSlider(QtCore.Qt.Orientation.Horizontal)
         self.treshold.setMinimum(0)
         self.treshold.setMaximum(500)
-        self.treshold.setValue(0)
+        self.treshold.setValue(10)
         self.treshold.setTickInterval(1)
         self.treshold.valueChanged.connect(self.tresholdChanged)
 
@@ -82,7 +110,8 @@ class MainWindow(QtWidgets.QMainWindow):
         layout.addWidget(self.range)
         layout.addWidget(self.range_label)
         layout.addWidget(self.trackingWidget)
-        
+        layout.addWidget(self.recordmenu)
+        layout.addWidget(self.menu_label)
 
         self.gain.valueChanged.connect(self.gainChanged)
         self.setLayout(layout)
@@ -118,6 +147,20 @@ class MainWindow(QtWidgets.QMainWindow):
         self.std = 10000
 
         self.startTime = time.time()
+
+    # def ActionChanged :
+
+ 
+    def Action(self,action):
+        
+            self.menu_label.setText("Action : " + action.text())
+            self.menu_label.adjustSize()
+            files = {"Slide Left": "slideleft.txt", "Slide Right": "slideright.txt", "Slide Up": "slideup.txt", "Slide Down": "slidedown.txt", "Long Touch": "longtouch.txt"}
+            self.file = files[action.text()]
+            # if self.recordmenu.text() == "Slide Left":
+            #     pass
+                
+
     
     def rangeChanged(self):
         range = self.range.value()
@@ -195,40 +238,59 @@ class MainWindow(QtWidgets.QMainWindow):
         self.ser.write(str(self.gain.value()).encode())
 
     def update_plot_data(self):
-        gain_bytes = str(self.gain.value()).encode()
-        self.ser.write(gain_bytes)
-        #self.ser.write(b"s")
-        # self.readByte()
-        self.readString()
-        #  reashaep the data
-        self.buffer = self.buffer.reshape(self.rows, self.cols)
-        #  plot the data*
-        # print(self.buffer.shape)
-        temp = self.buffer
-        if len(self.calibration)<80:
-            self.calibration.append(self.buffer)
-            self.mean = np.mean(np.array(self.calibration), axis=0)
-            self.std = np.std(np.array(self.calibration), axis=0)
-            if len(self.calibration)%10==0:
-                print(len(self.calibration))
-  
-        # temp = np.clip(temp, 0, 1000)
-        temp = temp - self.mean
-        #print(temp)
-        temp[temp<self.treshold.value()] = 0
-        tracking = GravityCenter(self, temp)
-        print(temp, type(temp))
         
-        #disable auto levels
+            gain_bytes = str(self.gain.value()).encode()
+            self.ser.write(gain_bytes)
+            #self.ser.write(b"s")
+            # self.readByte()
+            self.readString()
+            #  reashaep the data
+            self.buffer = self.buffer.reshape(self.rows, self.cols)
+            #  plot the data*
+            # print(self.buffer.shape)
+            temp = self.buffer
+            
+            if len(self.calibration) <80 and  (time.time() - self.startTime > 2 ):
+                self.calibration.append(self.buffer)
+                self.mean = np.mean(np.array(self.calibration), axis=0)
+                self.std = np.std(np.array(self.calibration), axis=0)
+                if len(self.calibration)%10==0:
+                    print(len(self.calibration))
+    
+            # temp = np.clip(temp, 0, 1000)
+            temp = temp - self.mean
+            #print(temp)
+            temp[temp<self.treshold.value()] = 0
+            tracking, moyenne = GravityCenter(self, temp)
+            if moyenne > 1 and self.file != None: 
+                   #change the color of the menu label when the action is detected
+                self.patience = 5
+            else:
+                self.patience -= 1
+            if self.patience > 0:
+                self.write(temp)
+                self.menu_label.setStyleSheet("QLabel { background-color : green; color : white; }")
+            elif self.patience == 0:
+                self.menu_label.setStyleSheet("QLabel { background-color : white; color : black; }")
+                with open(str(self.file), "a") as f:
+                    f.write("\n;\n")
 
-        image = pg.ImageItem(temp, autoLevels=False, autoRange=False, autoHistogramRange=False, levels=(0, self.range.value()))
-        ImageTrack = pg.ImageItem(tracking, autoLevels=False, autoRange=False, autoHistogramRange=False, levels=(0, 1)) 
-        self.trackingWidget.plotItem.clear()
-        self.trackingWidget.plotItem.addItem(ImageTrack)
-        self.graphWidget.plotItem.clear()
-        self.graphWidget.plotItem.addItem(image)
-        # self.graphWidget.setImage(self.buffer, autoLevels=False, autoRange=False, autoHistogramRange=False, levels=(0, 1000))
+      
+            
+            #disable auto levels
+
+            image = pg.ImageItem(temp, autoLevels=False, autoRange=False, autoHistogramRange=False, levels=(0, self.range.value()))
+            ImageTrack = pg.ImageItem(tracking, autoLevels=False, autoRange=False, autoHistogramRange=False, levels=(0, 1)) 
+            self.trackingWidget.plotItem.clear()
+            self.trackingWidget.plotItem.addItem(ImageTrack)
+            self.graphWidget.plotItem.clear()
+            self.graphWidget.plotItem.addItem(image)
+            # self.graphWidget.setImage(self.buffer, autoLevels=False, autoRange=False, autoHistogramRange=False, levels=(0, 1000))
         
+    def write(self, temp):
+        with open(str(self.file), "a") as f:
+            f.write(str(temp.reshape(1,-1)[0])+"\n")
+            print("str : " + str(temp))
 
 def GravityCenter(self, temp : np.ndarray):
     posx,posy = 0,0
@@ -244,7 +306,7 @@ def GravityCenter(self, temp : np.ndarray):
                 posy += (1/temp.sum())*temp[x,y]*y
         
         center[int(posx),int(posy)] = 1
-    return center
+    return center, moyenne
 
 def ElbowCluesters(self,temp : np.ndarray):
     #determine the number of cluesters in temp matrix with the elbow method 
@@ -274,30 +336,6 @@ def ElbowCluesters(self,temp : np.ndarray):
 
     return elbowtracking, nbclusters
     
-def ElbowCluestersV2(self,temp : np.ndarray, ncluesters : int):
-    for i in range(ncluesters):
-        kmeanModel = KMeans(n_clusters=i+1).fit(temp)
-        kmeanModel.fit(temp)
-
-
-#method to determine number of cluesters with the silhouette method
-def SilhouetteCluesters(self,temp : np.ndarray):
-    #get the index of each element not null of temp
-    #temp = temp.reshape(1,-1)
-    #temp = temp[0]
-    #temp = temp.tolist()
-    #temp = np.array(temp)
-    #temp = temp.reshape(self.rows, self.cols)
-    #print(temp)
-
-
-  
-
-    y = [[i,v] for i,v in range(len(temp)) if temp[i] != 0]
-    visualizer = SilhouetteVisualizer(self.model, colors='yellowbrick')
-    visualizer.fit(temp)
-    return visualizer.elbow_value_
-      
 
 
 
