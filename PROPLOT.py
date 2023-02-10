@@ -10,8 +10,20 @@ import sys
 from sklearn.cluster import KMeans
 from yellowbrick.cluster import KElbowVisualizer, SilhouetteVisualizer
 from sklearn.cluster import KMeans
+from model import Net 
+import torch 
+
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+total = []
+model = Net().to(device)
+model.load_state_dict(torch.load('model_weighs.pth'))
+trad = {0: "Slide Left", 1: "Slide Right", 2: "Slide Up", 3: "Slide Down", 4: "Long Touch"}
 
 
+
+last = None 
+nbpatience = 0
 #  on click on widget get x,y coordinates
 def SignalHandler(sig, frame):
     print("SignalHandler")
@@ -33,7 +45,7 @@ class MainWindow(QtWidgets.QMainWindow):
         #add a widget to let you choose between "slide left", "slide right", "no move", "slide up", "slide down", "long touch"
         self.file = None
         self.patience = -1
-
+        
 
         self.recordmenu = QtWidgets.QPushButton("Action",self)
         self.menu = QtWidgets.QMenu(self)
@@ -53,7 +65,7 @@ class MainWindow(QtWidgets.QMainWindow):
      
         
 
-
+        self.Move = "No move"
 
       
 
@@ -82,6 +94,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.treshold.setTickInterval(1)
         self.treshold.valueChanged.connect(self.tresholdChanged)
 
+        self.infoMove = QtWidgets.QLabel()
+        self.infoMove.setText("Move : "+str(self.Move))
 
         self.gain_label = QtWidgets.QLabel()
         self.gain_label.setText("Gain: " + str(self.gain.value()))
@@ -112,6 +126,9 @@ class MainWindow(QtWidgets.QMainWindow):
         layout.addWidget(self.trackingWidget)
         layout.addWidget(self.recordmenu)
         layout.addWidget(self.menu_label)
+        layout.addWidget(self.infoMove)
+
+     
 
         self.gain.valueChanged.connect(self.gainChanged)
         self.setLayout(layout)
@@ -132,7 +149,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.timer.setInterval(10)
         self.timer.timeout.connect(self.update_plot_data)
         self.timer.start()
-        self.ser = serial.Serial('/dev/ttyUSB1', 250000, timeout=0.1)
+        self.ser = serial.Serial('/dev/ttyUSB0', 250000, timeout=0.1)
         self.sync = False
         self.calibration = []
         #TO DEFINE
@@ -176,6 +193,9 @@ class MainWindow(QtWidgets.QMainWindow):
         gain = self.gain.value()
         self.gain_label.setText("Gain: " + str(gain))
         
+    def MoveChanged(self):
+        self.infoMove.setText("Move : "+str(self.Move))
+      
 
     def mouseClicked(self, event):
         self.calibration = []
@@ -238,7 +258,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self.ser.write(str(self.gain.value()).encode())
 
     def update_plot_data(self):
-        
+            global total, device, nbpatience, last
+
+            
+
             gain_bytes = str(self.gain.value()).encode()
             self.ser.write(gain_bytes)
             #self.ser.write(b"s")
@@ -261,7 +284,35 @@ class MainWindow(QtWidgets.QMainWindow):
             temp = temp - self.mean
             #print(temp)
             temp[temp<self.treshold.value()] = 0
+
+          
+      
+
+
+            if len(total)< 5:
+                total.append(temp)
+            else : 
+            
+                
+                
+                self.Move = trad[inferenceCNN(model, torch.Tensor(total))]
+                self.MoveChanged()
+                # if self.Move == last :
+                #     nbpatience += 1
+                # else :  
+                #     nbpatience = 0
+
+                # if nbpatience == 3 :
+                #     self.MoveChanged()
+                #     nbpatience = 0
+                
+                # last = self.Move
+                total = []
+
+
+
             tracking, moyenne = GravityCenter(self, temp)
+
             if moyenne > 1 and self.file != None: 
                    #change the color of the menu label when the action is detected
                 self.patience = 5
@@ -296,7 +347,7 @@ def GravityCenter(self, temp : np.ndarray):
     posx,posy = 0,0
     center = np.zeros((self.rows, self.cols))
     moyenne = np.mean(temp)  
-    print("moyenne value : ", moyenne)
+    #print("moyenne value : ", moyenne)
     if moyenne > 1 :
         for x in range(self.cols):
             for y in range(self.rows):
@@ -307,6 +358,17 @@ def GravityCenter(self, temp : np.ndarray):
         
         center[int(posx),int(posy)] = 1
     return center, moyenne
+
+def inferenceCNN(model, frames):
+    #take a list of frames and return the prediction of the model
+    #return the prediction
+    #load the model
+    frames = frames.to(device)
+    frames = frames.unsqueeze(0)
+    output = model(frames)
+    pred = torch.softmax(output, dim=1).argmax(dim=1)
+
+    return int(pred)
 
 def ElbowCluesters(self,temp : np.ndarray):
     #determine the number of cluesters in temp matrix with the elbow method 
